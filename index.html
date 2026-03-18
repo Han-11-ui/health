@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#667eea">
+    <title>健康指标监测</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; touch-action: manipulation; }
+        .glass-panel { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+        .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 20px); }
+        .ios-card { border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        .btn-press:active { transform: scale(0.96); }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .date-chip { transition: all 0.2s; }
+        .date-chip.active { background: #667eea; color: white; border-color: #667eea; }
+        .swipe-hint { animation: swipeHint 2s infinite; }
+        @keyframes swipeHint { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-10px); } }
+        .loading { display: inline-block; width: 20px; height: 20px; border: 3px solid rgba(255,255,255,.3); border-radius: 50%; border-top-color: #fff; animation: spin 1s ease-in-out infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+
+    <!-- 设备绑定弹窗（首次访问） -->
+    <div id="deviceModal" class="fixed inset-0 bg-black/60 z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-3xl p-6 w-full max-w-sm fade-in">
+            <div class="text-center mb-4">
+                <div class="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <svg class="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.2-2.85.577-4.147"></path></svg>
+                </div>
+                <h3 class="text-xl font-bold mb-2">设备绑定</h3>
+                <p class="text-gray-500 text-sm">首次使用需要绑定设备，确保数据安全同步</p>
+            </div>
+            <input type="text" id="deviceName" placeholder="给这个设备起个名字（如：手机、家里电脑）" class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl mb-4 text-base focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <button onclick="bindDevice()" class="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold btn-press">开始同步</button>
+            <p class="text-xs text-gray-400 text-center mt-3">数据将加密存储在云端，仅您可访问</p>
+        </div>
+    </div>
+
+    <!-- 顶部导航 -->
+    <nav class="gradient-bg text-white sticky top-0 z-40 shadow-lg">
+        <div class="max-w-lg mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <div class="bg-white/20 p-1.5 rounded-lg">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                </div>
+                <div>
+                    <span class="font-bold text-lg block leading-tight">健康监测</span>
+                    <span class="text-xs text-white/80" id="syncStatus">未同步</span>
+                </div>
+            </div>
+            <div class="flex items-center space-x-2">
+                <button onclick="syncData()" class="btn-press bg-white/20 p-2 rounded-lg" title="立即同步">
+                    <svg id="syncIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </button>
+                <button onclick="openModal()" class="btn-press bg-white text-indigo-600 px-3 py-1.5 rounded-lg text-sm font-semibold shadow-md flex items-center space-x-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                    <span>记一笔</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-lg mx-auto px-4 py-4 pb-24 safe-bottom">
+
+        <!-- 日期选择器（横向滑动） -->
+        <div class="mb-4">
+            <div class="flex justify-between items-center mb-2">
+                <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">选择日期查看</h2>
+                <button onclick="showAllDates()" class="text-xs text-indigo-600 font-medium bg-indigo-50 px-2 py-1 rounded-lg">查看全部</button>
+            </div>
+            <div class="flex space-x-2 overflow-x-auto hide-scrollbar pb-2" id="dateChips">
+                <!-- 动态生成日期标签 -->
+            </div>
+            <p class="text-xs text-gray-400 mt-1 flex items-center">
+                <svg class="w-3 h-3 mr-1 swipe-hint" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16l-4-4m0 0l4-4m-4 4h18"></path></svg>
+                左右滑动切换日期
+            </p>
+        </div>
+
+        <!-- 当前选中日期数据卡片 -->
+        <div id="currentDateDisplay" class="mb-6 fade-in">
+            <div class="flex justify-between items-end mb-3">
+                <h2 class="text-lg font-bold text-gray-800" id="selectedDateTitle">最新数据</h2>
+                <span class="text-xs text-gray-500" id="recordCountBadge">共 0 条记录</span>
+            </div>
+            <div class="grid grid-cols-2 gap-3" id="dataCards">
+                <!-- 动态生成数据卡片 -->
+            </div>
+        </div>
+
+        <!-- 全部数据概览（一键查看模式） -->
+        <div id="allDatesView" class="hidden mb-6 fade-in">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="text-lg font-bold text-gray-800">全部历史数据</h2>
+                <button onclick="closeAllDates()" class="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-lg">返回单日期</button>
+            </div>
+            <div class="ios-card bg-white overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs">
+                        <thead class="bg-gray-50 text-gray-600">
+                            <tr>
+                                <th class="px-3 py-2 text-left sticky left-0 bg-gray-50">日期</th>
+                                <th class="px-2 py-2">甘油三酯</th>
+                                <th class="px-2 py-2">胆固醇</th>
+                                <th class="px-2 py-2">HDL</th>
+                                <th class="px-2 py-2">LDL</th>
+                                <th class="px-2 py-2">尿酸</th>
+                                <th class="px-2 py-2">血糖</th>
+                            </tr>
+                        </thead>
+                        <tbody id="allDatesTableBody" class="divide-y divide-gray-100">
+                            <!-- 动态生成 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 趋势图表 -->
+        <div class="ios-card glass-panel p-4 mb-6">
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="font-bold text-gray-800">趋势分析</h3>
+                <select id="chartSelector" onchange="updateChart()" class="bg-gray-100 text-xs rounded-lg px-2 py-1 border-none outline-none">
+                    <option value="triglyceride">甘油三酯</option>
+                    <option value="cholesterol">总胆固醇</option>
+                    <option value="hdl">高密度脂蛋白</option>
+                    <option value="ldl">低密度脂蛋白</option>
+                    <option value="uric">尿酸</option>
+                    <option value="homocysteine">同型半胱氨酸</option>
+                    <option value="glucose">血糖</option>
+                </select>
+            </div>
+            <div class="h-48 w-full">
+                <canvas id="trendChart"></canvas>
+            </div>
+        </div>
+
+        <!-- 当前日期详细列表（可编辑删除） -->
+        <div id="detailListSection">
+            <h2 class="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wider">记录管理</h2>
+            <div id="detailList" class="space-y-3">
+                <!-- 动态生成 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 底部浮动操作栏 -->
+    <div class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 safe-bottom max-w-lg mx-auto flex justify-around items-center z-30">
+        <button onclick="exportData()" class="btn-press flex flex-col items-center space-y-1 text-gray-600">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            <span class="text-xs">备份</span>
+        </button>
+        <button onclick="openModal()" class="btn-press -mt-8 bg-indigo-600 text-white p-4 rounded-full shadow-xl flex items-center justify-center">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+        </button>
+        <button onclick="importData()" class="btn-press flex flex-col items-center space-y-1 text-gray-600">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+            <span class="text-xs">恢复</span>
+        </button>
+    </div>
+
+    <!-- 添加/编辑模态框 -->
+    <div id="modal" class="fixed inset-0 bg-black/50 z-50 hidden items-end sm:items-center justify-center">
+        <div class="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-6 modal-enter max-h-[85vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4 sticky top-0 bg-white z-10 pb-2 border-b border-gray-100">
+                <h3 class="text-lg font-bold" id="modalTitle">记录数据</h3>
+                <button onclick="closeModal()" class="p-2 hover:bg-gray-100 rounded-full">
+                    <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <form id="healthForm" onsubmit="saveRecord(event)" class="space-y-4">
+                <input type="hidden" id="editId">
+                
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">检测日期 <span class="text-red-500">*</span></label>
+                    <input type="date" id="date" required class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">甘油三酯 <span class="text-gray-400 font-normal">0.4-1.8</span></label>
+                        <input type="number" step="0.01" id="triglyceride" placeholder="mmol/L" class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">总胆固醇 <span class="text-gray-400 font-normal">0-5.6</span></label>
+                        <input type="number" step="0.01" id="cholesterol" placeholder="mmol/L" class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">高密度脂蛋白 <span class="text-gray-400 font-normal">>0.9</span></label>
+                        <input type="number" step="0.01" id="hdl" placeholder="mmol/L" class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">低密度脂蛋白 <span class="text-gray-400 font-normal">0-4.11</span></label>
+                        <input type="number" step="0.01" id="ldl" placeholder="mmol/L" class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">尿酸 <span class="text-gray-400 font-normal">202-416</span></label>
+                        <input type="number" step="0.01" id="uric" placeholder="μmol/L" class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">同型半胱氨酸 <span class="text-gray-400 font-normal">4-15.4</span></label>
+                        <input type="number" step="0.01" id="homocysteine" placeholder="μmol/L" class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block text-xs font-medium text-gray-500 mb-1">血糖 <span class="text-gray-400 font-normal">3.33-6.11</span></label>
+                        <input type="number" step="0.01" id="glucose" placeholder="mmol/L" class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                </div>
+
+                <div class="flex space-x-3 pt-4">
+                    <button type="button" onclick="closeModal()" class="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold btn-press">取消</button>
+                    <button type="submit" class="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-semibold shadow-lg shadow-indigo-200 btn-press">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 配置区域（必须修改）====================
+        const SUPABASE_URL = 'https://sowukmplfbvwehfralgi.supabase.co';  // 替换为您的URL
+        const SUPABASE_KEY = 'sb_publishable_I5XuefU9zmwL8MGcQns8xA_-jvTQZzE';  // 替换为您的密钥
+        
+        // ============================================================
+        
+        let supabase = null;
+        let healthData = [];
+        let currentDeviceId = localStorage.getItem('deviceId') || null;
+        let selectedDate = null;
+        let chartInstance = null;
+
+        const ranges = {
+            triglyceride: { min: 0.4, max: 1.8, name: '甘油三酯', unit: 'mmol/L', color: 'bg-blue-500' },
+            cholesterol: { min: 0, max: 5.6, name: '总胆固醇', unit: 'mmol/L', color: 'bg-purple-500' },
+            hdl: { min: 0.9, max: Infinity, name: '高密度脂蛋白', unit: 'mmol/L', color: 'bg-green-500' },
+            ldl: { min: 0, max: 4.11, name: '低密度脂蛋白', unit: 'mmol/L', color: 'bg-yellow-500' },
+            uric: { min: 202, max: 416, name: '尿酸', unit: 'μmol/L', color: 'bg-red-500' },
+            homocysteine: { min: 4.0, max: 15.4, name: '同型半胱氨酸', unit: 'μmol/L', color: 'bg-pink-500' },
+            glucose: { min: 3.33, max: 6.11, name: '血糖', unit: 'mmol/L', color: 'bg-indigo-500' }
+        };
+
+        // 初始化
+        async function init() {
+            if (!currentDeviceId) {
+                document.getElementById('deviceModal').classList.remove('hidden');
+                document.getElementById('deviceModal').classList.add('flex');
+            } else {
+                await initSupabase();
+            }
+        }
+
+        async function bindDevice() {
+            const name = document.getElementById('deviceName').value.trim();
+            if (!name) {
+                alert('请输入设备名称');
+                return;
+            }
+            currentDeviceId = 'device_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('deviceId', currentDeviceId);
+            localStorage.setItem('deviceName', name);
+            document.getElementById('deviceModal').classList.add('hidden');
+            document.getElementById('deviceModal').classList.remove('flex');
+            await initSupabase();
+        }
+
+        async function initSupabase() {
+            try {
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+                document.getElementById('syncStatus').textContent = '同步中...';
+                document.getElementById('syncIcon').classList.add('loading');
+                
+                // 加载云端数据
+                await loadFromCloud();
+                
+                document.getElementById('syncStatus').textContent = '已同步';
+                document.getElementById('syncIcon').classList.remove('loading');
+                
+                // 如果有本地数据未同步，先上传
+                const localData = JSON.parse(localStorage.getItem('healthData') || '[]');
+                if (localData.length > 0 && healthData.length === 0) {
+                    await syncLocalToCloud(localData);
+                }
+                
+                renderAll();
+            } catch (e) {
+                console.error('Supabase初始化失败:', e);
+                document.getElementById('syncStatus').textContent = '离线模式';
+                // 降级到本地模式
+                healthData = JSON.parse(localStorage.getItem('healthData') || '[]');
+                renderAll();
+            }
+        }
+
+        async function loadFromCloud() {
+            if (!supabase) return;
+            const { data, error } = await supabase
+                .from('health_records')
+                .select('*')
+                .order('date', { ascending: false });
+            
+            if (error) {
+                console.error('加载失败:', error);
+                return;
+            }
+            
+            healthData = data.map(r => ({
+                id: r.id,
+                date: r.date,
+                triglyceride: r.triglyceride,
+                cholesterol: r.cholesterol,
+                hdl: r.hdl,
+                ldl: r.ldl,
+                uric: r.uric,
+                homocysteine: r.homocysteine,
+                glucose: r.glucose,
+                user_id: r.user_id
+            }));
+            
+            // 缓存到本地
+            localStorage.setItem('healthData', JSON.stringify(healthData));
+        }
+
+        async function syncLocalToCloud(localData) {
+            if (!supabase) return;
+            for (const record of localData) {
+                await supabase.from('health_records').insert({
+                    ...record,
+                    user_id: currentDeviceId
+                });
+            }
+            await loadFromCloud();
+        }
+
+        async function syncData() {
+            if (!supabase) {
+                alert('离线模式，无法同步');
+                return;
+            }
+            document.getElementById('syncIcon').classList.add('loading');
+            document.getElementById('syncStatus').textContent = '同步中...';
+            await loadFromCloud();
+            document.getElementById('syncIcon').classList.remove('loading');
+            document.getElementById('syncStatus').textContent = '已同步 ' + new Date().toLocaleTimeString();
+            renderAll();
+        }
+
+        function checkStatus(key, value) {
+            if (!value && value !== 0) return 'normal';
+            const range = ranges[key];
+            if (key === 'hdl') return value < range.min ? 'warning' : 'normal';
+            return (value < range.min || value > range.max) ? 'warning' : 'normal';
+        }
+
+        function renderAll() {
+            renderDateChips();
+            renderCurrentDateData();
+            renderDetailList();
+            updateChart();
+            document.getElementById('recordCountBadge').textContent = `共 ${healthData.length} 条记录`;
+        }
+
+        function renderDateChips() {
+            const dates = [...new Set(healthData.map(r => r.date))].sort().reverse();
+            const container = document.getElementById('dateChips');
+            
+            if (dates.length === 0) {
+                container.innerHTML = '<span class="text-gray-400 text-sm">暂无记录</span>';
+                return;
+            }
+
+            // 默认选中最新日期
+            if (!selectedDate && dates.length > 0) {
+                selectedDate = dates[0];
+            }
+
+            container.innerHTML = dates.map(date => {
+                const isActive = date === selectedDate;
+                const hasData = healthData.filter(r => r.date === date).length;
+                return `
+                    <button onclick="selectDate('${date}')" class="date-chip flex-shrink-0 px-4 py-2 rounded-full border border-gray-200 text-sm font-medium ${isActive ? 'active' : 'bg-white text-gray-700'}">
+                        ${date.slice(5)} <span class="text-xs opacity-70">(${hasData})</span>
+                    </button>
+                `;
+            }).join('');
+        }
+
+        function selectDate(date) {
+            selectedDate = date;
+            renderDateChips();
+            renderCurrentDateData();
+            renderDetailList();
+            closeAllDates();
+        }
+
+        function renderCurrentDateData() {
+            const records = healthData.filter(r => r.date === selectedDate);
+            const container = document.getElementById('dataCards');
+            const title = document.getElementById('selectedDateTitle');
+            
+            title.textContent = selectedDate ? `${selectedDate} 数据` : '选择日期查看';
+            
+            if (records.length === 0) {
+                container.innerHTML = '<div class="col-span-2 text-center py-8 text-gray-400 bg-white rounded-2xl">该日期暂无数据</div>';
+                return;
+            }
+
+            // 显示该日期第一条记录（通常一天一次检测）
+            const record = records[0];
+            
+            container.innerHTML = Object.keys(ranges).map(key => {
+                const val = record[key];
+                const status = checkStatus(key, val);
+                const range = ranges[key];
+                const isWarning = status === 'warning';
+                
+                return `
+                    <div class="ios-card ${isWarning ? 'bg-red-50 border-l-4 border-red-400' : 'bg-white'} p-4 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 w-16 h-16 ${range.color} opacity-10 rounded-bl-full"></div>
+                        <div class="flex items-center space-x-2 mb-2">
+                            <div class="w-2 h-2 rounded-full ${range.color}"></div>
+                            <span class="text-xs text-gray-500">${range.name}</span>
+                        </div>
+                        <div class="flex items-baseline space-x-1">
+                            <span class="text-2xl font-bold ${isWarning ? 'text-red-600' : 'text-gray-800'}">${val !== null && val !== undefined ? val : '-'}</span>
+                            <span class="text-xs text-gray-400">${range.unit}</span>
+                        </div>
+                        ${isWarning ? '<span class="text-xs text-red-500 font-medium mt-1 block">⚠ 异常</span>' : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function showAllDates() {
+            document.getElementById('currentDateDisplay').classList.add('hidden');
+            document.getElementById('detailListSection').classList.add('hidden');
+            document.getElementById('allDatesView').classList.remove('hidden');
+            renderAllDatesTable();
+        }
+
+        function closeAllDates() {
+            document.getElementById('allDatesView').classList.add('hidden');
+            document.getElementById('currentDateDisplay').classList.remove('hidden');
+            document.getElementById('detailListSection').classList.remove('hidden');
+        }
+
+        function renderAllDatesTable() {
+            const sorted = [...healthData].sort((a, b) => new Date(b.date) - new Date(a.date));
+            const tbody = document.getElementById('allDatesTableBody');
+            
+            tbody.innerHTML = sorted.map(record => {
+                const cells = ['triglyceride', 'cholesterol', 'hdl', 'ldl', 'uric', 'glucose'].map(key => {
+                    const val = record[key];
+                    const status = checkStatus(key, val);
+                    const className = status === 'warning' ? 'text-red-600 font-bold' : 'text-gray-700';
+                    return `<td class="px-2 py-2 text-center ${className}">${val || '-'}</td>`;
+                }).join('');
+                
+                return `
+                    <tr class="hover:bg-gray-50 transition-colors cursor-pointer" onclick="selectDate('${record.date}')">
+                        <td class="px-3 py-2 font-medium text-gray-900 sticky left-0 bg-white">${record.date}</td>
+                        ${cells}
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function renderDetailList() {
+            const records = healthData.filter(r => r.date === selectedDate);
+            const container = document.getElementById('detailList');
+            
+            if (records.length === 0) {
+                container.innerHTML = '<p class="text-center text-gray-400 py-4">点击右上角"记一笔"添加数据</p>';
+                return;
+            }
+
+            container.innerHTML = records.map(record => {
+                const abnormalCount = Object.keys(ranges).filter(key => checkStatus(key, record[key]) === 'warning').length;
+                
+                return `
+                    <div class="ios-card bg-white p-4 border-l-4 ${abnormalCount > 0 ? 'border-red-400' : 'border-green-400'}">
+                        <div class="flex justify-between items-start mb-2">
+                            <div>
+                                <div class="font-bold text-gray-800">${record.date}</div>
+                                <div class="text-xs text-gray-500 mt-1">
+                                    ${abnormalCount > 0 ? `<span class="text-red-500">${abnormalCount}项异常</span>` : '<span class="text-green-600">全部正常</span>'}
+                                </div>
+                            </div>
+                            <div class="flex space-x-1">
+                                <button onclick="editRecord('${record.id}')" class="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                                </button>
+                                <button onclick="deleteRecord('${record.id}')" class="p-2 text-red-600 hover:bg-red-50 rounded-lg">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-4 gap-2 text-xs text-gray-600">
+                            <div>甘油三酯: ${record.triglyceride || '-'}</div>
+                            <div>胆固醇: ${record.cholesterol || '-'}</div>
+                            <div>HDL: ${record.hdl || '-'}</div>
+                            <div>LDL: ${record.ldl || '-'}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateChart() {
+            const key = document.getElementById('chartSelector').value;
+            const range = ranges[key];
+            const sorted = [...healthData].sort((a, b) => new Date(a.date) - new Date(b.date));
+            
+            if (chartInstance) chartInstance.destroy();
+            
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: sorted.map(r => r.date.slice(5)),
+                    datasets: [{
+                        label: range.name,
+                        data: sorted.map(r => r[key]),
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 4,
+                        pointBackgroundColor: '#667eea',
+                        tension: 0.4,
+                        fill: true
+                    }, {
+                        label: '上限',
+                        data: sorted.map(() => range.max === Infinity ? null : range.max),
+                        borderColor: '#ef4444',
+                        borderWidth: 1,
+                        borderDash: [3, 3],
+                        pointRadius: 0,
+                        fill: false
+                    }, {
+                        label: '下限',
+                        data: sorted.map(() => range.min),
+                        borderColor: '#10b981',
+                        borderWidth: 1,
+                        borderDash: [3, 3],
+                        pointRadius: 0,
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(255,255,255,0.9)',
+                            titleColor: '#1f2937',
+                            bodyColor: '#1f2937',
+                            borderColor: '#e5e7eb',
+                            borderWidth: 1
+                        }
+                    },
+                    scales: {
+                        y: { grid: { color: 'rgba(0,0,0,0.03)' }, ticks: { font: { size: 10 } } },
+                        x: { grid: { display: false }, ticks: { font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        function openModal(id = null) {
+            document.getElementById('modal').classList.remove('hidden');
+            document.getElementById('modal').classList.add('flex');
+            
+            if (id) {
+                const record = healthData.find(r => r.id === id);
+                document.getElementById('modalTitle').textContent = '编辑记录';
+                document.getElementById('editId').value = id;
+                document.getElementById('date').value = record.date;
+                Object.keys(ranges).forEach(key => {
+                    document.getElementById(key).value = record[key] || '';
+                });
+            } else {
+                document.getElementById('modalTitle').textContent = '记录数据';
+                document.getElementById('healthForm').reset();
+                document.getElementById('editId').value = '';
+                document.getElementById('date').value = selectedDate || new Date().toISOString().split('T')[0];
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('modal').classList.add('hidden');
+            document.getElementById('modal').classList.remove('flex');
+        }
+
+        async function saveRecord(e) {
+            e.preventDefault();
+            const id = document.getElementById('editId').value;
+            const date = document.getElementById('date').value;
+            
+            const record = {
+                date: date,
+                triglyceride: parseFloat(document.getElementById('triglyceride').value) || null,
+                cholesterol: parseFloat(document.getElementById('cholesterol').value) || null,
+                hdl: parseFloat(document.getElementById('hdl').value) || null,
+                ldl: parseFloat(document.getElementById('ldl').value) || null,
+                uric: parseFloat(document.getElementById('uric').value) || null,
+                homocysteine: parseFloat(document.getElementById('homocysteine').value) || null,
+                glucose: parseFloat(document.getElementById('glucose').value) || null
+            };
+
+            if (supabase) {
+                if (id) {
+                    await supabase.from('health_records').update(record).eq('id', id);
+                } else {
+                    record.user_id = currentDeviceId;
+                    await supabase.from('health_records').insert(record);
+                }
+                await loadFromCloud();
+            } else {
+                // 离线模式
+                if (id) {
+                    const idx = healthData.findIndex(r => r.id === id);
+                    healthData[idx] = { ...healthData[idx], ...record };
+                } else {
+                    record.id = 'local_' + Date.now();
+                    healthData.push(record);
+                }
+                localStorage.setItem('healthData', JSON.stringify(healthData));
+            }
+            
+            selectedDate = date;
+            renderAll();
+            closeModal();
+        }
+
+        function editRecord(id) { openModal(id); }
+
+        async function deleteRecord(id) {
+            if (!confirm('确定删除？')) return;
+            
+            if (supabase) {
+                await supabase.from('health_records').delete().eq('id', id);
+                await loadFromCloud();
+            } else {
+                healthData = healthData.filter(r => r.id !== id);
+                localStorage.setItem('healthData', JSON.stringify(healthData));
+            }
+            
+            renderAll();
+        }
+
+        function exportData() {
+            const dataStr = JSON.stringify(healthData, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `健康数据备份_${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function importData() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = async (e) => {
+                const file = e.target.files[0];
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    try {
+                        const data = JSON.parse(event.target.result);
+                        if (Array.isArray(data)) {
+                            if (confirm(`导入 ${data.length} 条记录？`)) {
+                                if (supabase) {
+                                    for (const r of data) {
+                                        await supabase.from('health_records').insert({ ...r, user_id: currentDeviceId });
+                                    }
+                                    await loadFromCloud();
+                                } else {
+                                    healthData = data;
+                                    localStorage.setItem('healthData', JSON.stringify(healthData));
+                                }
+                                renderAll();
+                                alert('导入成功');
+                            }
+                        }
+                    } catch (err) {
+                        alert('文件格式错误');
+                    }
+                };
+                reader.readAsText(file);
+            };
+            input.click();
+        }
+
+        // 事件监听
+        document.getElementById('modal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('modal')) closeModal();
+        });
+
+        // 启动
+        init();
+    </script>
+</body>
+</html>
